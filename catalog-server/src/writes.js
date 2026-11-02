@@ -212,7 +212,8 @@ function deleteVariant(snap, { model, id, ifMatch, message }) {
       if (String(o?.[key] ?? "").split("@")[0] === id) problems.push(`models/${model}/metadata.yaml: origins[${i}].${key} names ${id}`);
     }
   });
-  if (dir.variants.length === 1) problems.push(`${rel}: the model's last variant -- a model has at least one`);
+  if (dir.variants.length === 1)
+    problems.push(`${rel}: the model's last variant -- a model has at least one: delete the model instead (DELETE api/v2/models/${model})`);
   if (problems.length) throw invalid(problems);
   return { rel, changes: new Map([[rel, null]]), message: message || `${model}/${id}: delete` };
 }
@@ -245,6 +246,21 @@ function putMetadata(snap, { model, body, ifMatch, message }) {
   );
   if (problems.length) throw invalid(problems);
   return { rel, changes: new Map([[rel, body]]), message: message || `${model}: metadata` };
+}
+
+// DELETE models/<model>: its metadata.yaml and every variant file, in one
+// commit. Each variant's history stays, and raw/ keeps serving its revisions,
+// as deleting one does: a deploy pinned to one still finds it.
+function deleteModel(snap, { model, ifMatch, message }) {
+  mustBeInitialized(snap);
+  const dir = modelDir(snap, model);
+  const rel = dir.metaRel;
+  const current = fileDigest(snap, rel);
+  if (ifMatch == null) throw new HttpError(428, `${rel}: send If-Match with the digest it was read at`, { current });
+  precondition(current, { ifMatch }, rel);
+  const changes = new Map([[rel, null]]);
+  for (const v of dir.variants) changes.set(v.rel, null);
+  return { rel, model, changes, message: message || `${model}: delete` };
 }
 
 // POST models: a new model, its metadata.yaml and its first variants, in one
@@ -280,4 +296,16 @@ function createModel(snap, { metadata, variants, message }) {
   return { rel, created: true, model: name, changes, message: message || `${name}: add model` };
 }
 
-module.exports = { HttpError, initialized, initialize, putSettings, settingsProblems, putVariant, deleteVariant, putMetadata, createModel, tag };
+module.exports = {
+  HttpError,
+  initialized,
+  initialize,
+  putSettings,
+  settingsProblems,
+  putVariant,
+  deleteVariant,
+  putMetadata,
+  deleteModel,
+  createModel,
+  tag,
+};

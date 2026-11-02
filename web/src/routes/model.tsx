@@ -36,7 +36,7 @@ import {
   VariantBadges,
 } from "@/components/catalog";
 import { VariantHistory } from "@/components/history";
-import { DeleteVariant, EditMetadata, EditVariant, NewVariant, useEditable } from "@/components/edit";
+import { DeleteModel, DeleteVariant, EditMetadata, EditVariant, NewVariant, useEditable } from "@/components/edit";
 import { icons } from "@/components/icons";
 import { SiteFooter, SiteHeader } from "@/components/site";
 
@@ -370,6 +370,7 @@ export function ModelRoute() {
           <div className="flex flex-wrap justify-center gap-2">
             <NewVariant m={m} from={newFrom(m, yaml)} />
             <EditMetadata m={m} />
+            <DeleteModel m={m} />
           </div>
         )}
         {reports.length > 0 && (

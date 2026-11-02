@@ -2,6 +2,7 @@
 // Writes as a client makes them, over HTTP.
 
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const { afterEach, beforeEach, test } = require("node:test");
 const { catalogRepo, serve, variant, catalogFiles, YAML } = require("./helpers");
@@ -191,6 +192,79 @@ test("a variant an origin names is not deleted, and the index carries the origin
   const named = await s.json(tp4, { method: "DELETE", headers: { "If-Match": (await s.fetch(tp4)).headers.get("etag") } });
   assert.equal(named.status, 422);
   assert.deepEqual(named.body.problems, ["models/m2/metadata.yaml: origins[0].from names sglang-tp4"]);
+});
+
+test("a model is deleted, variants and all, and their history stays", async () => {
+  const rel = "api/v2/models/m2";
+  const meta = "api/v2/models/m2/metadata";
+  const etag = (await s.fetch(meta)).headers.get("etag");
+  const before = await (await s.fetch("index-v2.json")).json();
+  const head = repo.head();
+
+  assert.equal((await s.json(rel, { method: "DELETE" })).status, 428);
+  const stale = await s.json(rel, { method: "DELETE", headers: { "If-Match": `"${sha("other")}"` } });
+  assert.equal(stale.status, 412);
+  assert.equal(stale.body.current, sha(await (await s.fetch(meta)).text()));
+  assert.equal((await s.json("api/v2/models/nope", { method: "DELETE", headers: { "If-Match": etag } })).status, 404);
+  assert.equal(repo.head(), head, "nothing committed");
+
+  const done = await s.json(rel, { method: "DELETE", headers: { "If-Match": etag } });
+  assert.equal(done.status, 200);
+  assert.equal(done.etag, null);
+  assert.deepEqual(
+    { path: done.body.path, model: done.body.model, deleted: done.body.deleted, digest: done.body.digest },
+    { path: "models/m2/metadata.yaml", model: "m2", deleted: true, digest: undefined },
+  );
+  assert.match(repo.show(done.body.commit), /\|m2: delete$/);
+
+  const git = (args) => execFileSync("git", args, { cwd: repo.dir, encoding: "utf8" });
+  assert.deepEqual(git(["diff-tree", "--no-commit-id", "--name-status", "-r", done.body.commit]).trim().split("\n").sort(), [
+    "D\tmodels/m2/metadata.yaml",
+    "D\tmodels/m2/sglang-tp4.yaml",
+    "D\tmodels/m2/sglang-tp8.yaml",
+  ]);
+  const listed = git(["ls-tree", "-r", "--name-only", done.body.commit]);
+  assert.equal(
+    listed.split("\n").some((p) => p.startsWith("models/m2/")),
+    false,
+  );
+  assert.match(listed, /^catalog\.yaml$/m);
+  assert.match(listed, /^models\/m1\/metadata\.yaml$/m);
+
+  for (const p of [
+    "api/v2/models/m2/metadata",
+    "api/v2/models/m2/variants/sglang-tp4",
+    "api/v2/models/m2/variants/sglang-tp8",
+    "models/m2/sglang-tp4.yaml",
+    "models/m2/sglang-tp8.yaml",
+  ]) {
+    assert.equal((await s.fetch(p)).status, 404, p);
+  }
+  const index = await (await s.fetch("index-v2.json")).json();
+  assert.deepEqual(
+    index.models.map((m) => m.name),
+    before.models.map((m) => m.name).filter((n) => n !== "m2"),
+  );
+  assert.equal(index.commit, done.body.commit);
+  // A deploy pinned to a variant still finds it, and its history says it is gone.
+  for (const v of before.models.find((m) => m.name === "m2").variants) {
+    const history = await (await s.fetch(v.history)).json();
+    assert.equal(history.deleted.commit, done.body.commit);
+    assert.equal(sha(await (await s.fetch(`raw/${v.commit}/${v.path}`)).text()), v.digest);
+  }
+});
+
+test("a model's last variant stays: delete the model instead", async () => {
+  const meta = { apiVersion: "catalog.swiss/v2", name: "solo" };
+  const body = JSON.stringify({ metadata: YAML.stringify(meta), variants: [YAML.stringify(variant("only", "1.0.0", 1, "solo"))] });
+  assert.equal((await s.json("api/v2/models", { method: "POST", body })).status, 201);
+  const rel = "api/v2/models/solo/variants/only";
+  const gone = await s.json(rel, { method: "DELETE", headers: { "If-Match": (await s.fetch(rel)).headers.get("etag") } });
+  assert.equal(gone.status, 422);
+  assert.deepEqual(gone.body.problems, [
+    "models/solo/only.yaml: the model's last variant -- a model has at least one: delete the model instead (DELETE api/v2/models/solo)",
+  ]);
+  assert.equal((await s.fetch(rel)).status, 200);
 });
 
 test("metadata is replaced at its digest, naming variants the model has", async () => {

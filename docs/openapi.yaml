@@ -69,7 +69,7 @@ tags:
       A model's variant files: `models/<model>/<id>.yaml`. catalog-server only. Reads need no token;
       every write does, and must name the digest it read (`If-Match`).
   - name: Models
-    description: A model's `metadata.yaml`, and new models. catalog-server only.
+    description: A model's `metadata.yaml`, new models, and deleting a model. catalog-server only.
   - name: Settings
     description: "`catalog.yaml`: where the catalog is served (`site`, `raw`) and its repository (`repo`). catalog-server only."
   - name: Setup
@@ -448,7 +448,8 @@ paths:
       summary: Delete a variant file
       description: |
         Refused (`422`) while the model's `defaultVariant` or a `tuning` entry names it, or when it is
-        the model's last variant. Its history stays, and `raw/` keeps serving its revisions.
+        the model's last variant: delete the model instead (`DELETE api/v2/models/{model}`). Its history
+        stays, and `raw/` keeps serving its revisions.
       x-served-by: [catalog-server]
       security:
         - bearer: []
@@ -543,6 +544,48 @@ paths:
           $ref: "#/components/responses/PreconditionFailed"
         "413":
           $ref: "#/components/responses/TooLarge"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
+  /api/v2/models/{model}:
+    parameters:
+      - $ref: "#/components/parameters/Model"
+    delete:
+      tags: [Models]
+      operationId: deleteModel
+      summary: Delete a model
+      description: |
+        Deletes `models/{model}/metadata.yaml` and every variant file, in one commit. `If-Match` is
+        `metadata.yaml`'s digest. Each variant's history stays, and `raw/` keeps serving its revisions.
+      x-served-by: [catalog-server]
+      security:
+        - bearer: []
+      parameters:
+        - $ref: "#/components/parameters/IfMatchRequired"
+        - $ref: "#/components/parameters/DryRun"
+        - $ref: "#/components/parameters/Message"
+        - $ref: "#/components/parameters/CommitMessage"
+      responses:
+        "200":
+          $ref: "#/components/responses/Written"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/WritesOff"
+        "404":
+          description: No such model.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
         "422":
           $ref: "#/components/responses/Unprocessable"
         "428":
@@ -805,7 +848,7 @@ components:
     CommitMessage:
       name: X-Commit-Message
       in: header
-      description: "The commit's message. Default: `<model>/<id>: <version>`, `<model>/<id>: delete`, `<model>: metadata`, `<model>: add model`, `catalog: settings`, or `Initialize the catalog`."
+      description: "The commit's message. Default: `<model>/<id>: <version>`, `<model>/<id>: delete`, `<model>: delete`, `<model>: metadata`, `<model>: add model`, `catalog: settings`, or `Initialize the catalog`."
       schema:
         type: string
 

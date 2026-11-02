@@ -1,9 +1,9 @@
 // Editing the catalog, where its server takes writes (lib/edit.ts): a
 // variant's file and a model's metadata.yaml edited in place, a new variant
-// or model, a variant deleted. Each is a dialog over the page that checks the
-// change with the server (a dry run) before committing it, and the page shows
-// the catalog as the commit left it. None of it shows on a read-only catalog,
-// or in an element marked readonly.
+// or model, a variant deleted or the model itself. Each is a dialog over the
+// page that checks the change with the server (a dry run) before committing
+// it, and the page shows the catalog as the commit left it. None of it shows
+// on a read-only catalog, or in an element marked readonly.
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useNavigate, useRevalidator } from "react-router";
 import type { Model, Variant } from "@/types";
@@ -15,6 +15,7 @@ import {
   loadCapabilities,
   loadInit,
   metadataApi,
+  modelApi,
   modelsApi,
   onTokens,
   readFile,
@@ -588,6 +589,82 @@ export function DeleteVariant({ m, v }: { m: Model; v: Variant }) {
           <DialogDescription>
             It leaves the catalog. Its history stays, and a deploy pinned to one of its versions still finds it. To steer people off it instead, edit
             it and set <code>deprecated</code>.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-5 py-4">
+          <OutcomeNote outcome={outcome} onReload={() => reload().then(() => setOpen(false))} />
+          <TokenForm refused={outcome?.kind === "failed" && outcome.err.status === 401} />
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3">
+          <Input
+            aria-label="Commit message"
+            placeholder="Commit message (optional)"
+            className="min-h-0 flex-[1_1_16rem] py-[0.35rem] text-[0.84rem]"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
+          <Button
+            type="button"
+            className="border-destructive text-destructive hover:border-destructive hover:text-destructive"
+            disabled={!token || busy}
+            onClick={remove}
+          >
+            {busy ? "Deleting…" : "Delete"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// A model deleted, once confirmed. Its variants' histories stay, and so does
+// every revision of them a deploy may be pinned to.
+export function DeleteModel({ m }: { m: Model }) {
+  const { base } = useHost();
+  const token = useToken(base);
+  const reload = useReload();
+  const navigate = useNavigate();
+  const api = modelApi(m.name);
+  const [open, setOpen] = useState(false);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<Outcome>(null);
+  useEffect(() => {
+    if (open) {
+      setOutcome(null);
+      setMessage("");
+    }
+  }, [open]);
+  const remove = async () => {
+    setBusy(true);
+    setOutcome(null);
+    try {
+      // At metadata.yaml's digest, read now: the page does not carry it.
+      const { etag } = await readFile(base, metadataApi(m.name));
+      await write(base, { method: "DELETE", api, etag, message });
+      // The model's page is gone. The models list loads the catalog again.
+      forgetCatalog(base);
+      setOpen(false);
+      navigate("/models.html");
+    } catch (err) {
+      setOutcome({ kind: "failed", err: err instanceof WriteError ? err : new WriteError(0, (err as Error).message) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button title={`Delete ${m.name}`}>{icons.remove}Delete model</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            Delete <span className="font-mono">{m.name}</span>?
+          </DialogTitle>
+          <DialogDescription>
+            The model leaves the catalog, and every recipe of it. Each recipe's history stays, and a deploy pinned to one of its versions still finds
+            it. To steer people off it instead, edit it and set <code>deprecated</code>.
           </DialogDescription>
         </DialogHeader>
         <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-5 py-4">
