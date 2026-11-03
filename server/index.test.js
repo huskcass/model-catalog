@@ -66,7 +66,7 @@ test("the perf reports index-v2.json lists are served, and catalog.json is gone"
   assert.equal((await fetch(`${base}/catalog.json`)).status, 404);
 });
 
-test("a model with no variants is served in index-v2 and does not break index.json", async () => {
+test("a model with no variants is left out of index-v2 and does not break index.json", async () => {
   const { dir: bareDir } = fixture([
     [
       "2026-10-01T10:00:00Z",
@@ -87,9 +87,14 @@ test("a model with no variants is served in index-v2 and does not break index.js
       ["m1"],
     );
     const v2 = await (await fetch(`${bareBase}/index-v2.json`)).json();
-    const bare = v2.models.find((m) => m.name === "bare");
-    assert.equal(bare.displayName, "Bare");
-    assert.deepEqual(bare.variants, []);
+    assert.equal(
+      v2.models.find((m) => m.name === "bare"),
+      undefined,
+    );
+    assert.deepEqual(
+      v2.models.map((m) => m.name),
+      ["m2"],
+    );
     assert.equal((await fetch(`${bareBase}/models/bare/metadata.yaml`)).status, 200);
   } finally {
     srv.close();

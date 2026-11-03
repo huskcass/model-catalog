@@ -231,7 +231,7 @@ function variantProblems(v, at) {
 // What the schema cannot see, per model: it lives in models/<name>/, named
 // after metadata.yaml's name -- the index gives a perf report as a bare file
 // name, and consumers fetch it from models/<name>/<report>. A v1 model is
-// its version files. A v2 model may have no variant files.
+// its version files. A v2 model may have no variant files; index-v2.json then omits it.
 for (const name of modelNames()) {
   const dir = path.join(modelsDir, name);
   const meta = doc(path.join(dir, "metadata.yaml"));

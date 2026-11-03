@@ -100,7 +100,7 @@ test("index-v2 lists only v2 models, each variant file at its latest version", (
   assert.deepEqual(revisionProblems({ root: repo.dir, since: repo.sha(3) }), []);
 });
 
-test("a v2 model with no variants is in index-v2 and not in the v1 index", () => {
+test("a v2 model with no variants is left out of index-v2 and not in the v1 index", () => {
   const repo = fixture([
     [
       "2026-10-01T10:00:00Z",
@@ -113,10 +113,15 @@ test("a v2 model with no variants is in index-v2 and not in the v1 index", () =>
   ]);
   const built = buildIndexV2({ root: repo.dir, warn: () => {} });
   assert.deepEqual(checkIndexV2(built), []);
-  const bare = built.index.models.find((m) => m.name === "bare");
-  assert.equal(bare.displayName, "Bare");
-  assert.equal(bare.defaultVariant, "gone");
-  assert.deepEqual([bare.variants, bare.reports, bare.tuning], [[], [], []]);
+  assert.equal(
+    built.index.models.find((m) => m.name === "bare"),
+    undefined,
+  );
+  assert.deepEqual(
+    built.index.models.map((m) => m.name),
+    ["m2"],
+  );
+  assert.equal(built.index.count, 1);
   assert.deepEqual(
     buildIndex({ root: repo.dir }).models.map((m) => m.name),
     ["m1"],

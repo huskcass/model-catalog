@@ -58,7 +58,7 @@ test("index-v2.json has the v2 models, each variant at its last change", () => {
   }
 });
 
-test("a v2 model with no variants is listed with none", () => {
+test("a v2 model with no variants is left out of the index and still known to the catalog", () => {
   const repo = catalogRepo([
     [
       "2026-10-01T10:00:00Z",
@@ -70,12 +70,21 @@ test("a v2 model with no variants is listed with none", () => {
     ],
   ]);
   try {
-    const { index } = snapshotOf(repo);
-    const bare = index.models.find((m) => m.name === "bare");
-    assert.equal(bare.displayName, "Bare");
-    assert.equal(bare.defaultVariant, "gone");
-    assert.deepEqual([bare.variants, bare.reports, bare.tuning], [[], [], []]);
-    assert.ok(index.models.some((m) => m.name === "m2"));
+    const { index, dirs } = snapshotOf(repo);
+    assert.equal(
+      index.models.find((m) => m.name === "bare"),
+      undefined,
+    );
+    assert.deepEqual(
+      index.models.map((m) => m.name),
+      ["m2"],
+    );
+    assert.equal(index.count, 1);
+    const bare = dirs.get("bare");
+    assert.equal(bare.meta.displayName, "Bare");
+    assert.equal(bare.meta.defaultVariant, "gone");
+    assert.equal(bare.metaRel, "models/bare/metadata.yaml");
+    assert.deepEqual(bare.variants, []);
   } finally {
     repo.rm();
   }

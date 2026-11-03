@@ -93,8 +93,9 @@ paths:
       operationId: getIndexV2
       summary: The catalog
       description: |
-        The v2 models and their variant files, without the variants' values. What the web app
-        renders from and swiss reads with `schemaVersion: v2`. Schema: `schema/index-v2.schema.json`.
+        The v2 models that have variant files, without the variants' values. A model with none is
+        omitted: a consumer rejects the whole index when any model has an empty variants list. What the
+        web app renders from and swiss reads with `schemaVersion: v2`. Schema: `schema/index-v2.schema.json`.
 
         server/ builds it from the checkout and git history, and again after an edit under
         `models/` or a new commit; it answers `500` when the result fails its checks. catalog-server
@@ -561,8 +562,12 @@ paths:
       operationId: deleteModel
       summary: Delete a model
       description: |
-        Deletes every tracked file under `models/{model}/`, in one commit, and only when the model has no
-        variants. Refused (`422`) while any remain; `problems` names each and says to delete them first.
+        Deletes every tracked file under `models/{model}/`, in one commit. Refused (`422`) while any
+        `models/{model}/*.yaml` other than `metadata.yaml` remains, unless that file parses as a v1 version
+        (`apiVersion: catalog.swiss/v1` and no `kind`): a variant, YAML that does not parse, or YAML that
+        parses as neither. `problems` names each and says to delete them first. A v1 version file, and
+        non-yaml leftovers such as perf reports, are removed with the model. With none of those YAML files
+        left, the model is omitted from `index-v2.json`; `GET .../metadata` and this call still reach it.
         `If-Match` is `metadata.yaml`'s digest: missing is `428`, a mismatch is `412`, and `*` matches as
         on the other writes. No such model is `404`. Each variant's history stays, and `raw/` keeps
         serving its revisions.
@@ -1097,7 +1102,7 @@ components:
         quantization:
           type: string
         defaultVariant:
-          description: The first variant when absent. With no variants, it may name one that is gone.
+          description: The first variant when absent.
           type: string
         reports:
           description: Perf reports at `models/<name>/<report>`.
@@ -1114,9 +1119,9 @@ components:
           items:
             $ref: "#/components/schemas/Tuning"
         variants:
-          description: One per variant file, by id. Empty when the model has none.
+          description: One per variant file, by id.
           type: array
-          minItems: 0
+          minItems: 1
           items:
             $ref: "#/components/schemas/VariantSummary"
     Tuning:

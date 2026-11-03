@@ -22,9 +22,18 @@
 //   PUT    api/v2/models/<name>/metadata       (If-Match: <digest>)
 //   POST   api/v2/models                       a new model: {metadata, variants}
 //   DELETE api/v2/models/<name>                every file under models/<name>/,
-//                                              once it has no variants
-//                                              (If-Match: metadata.yaml's digest;
-//                                              422 names any that remain)
+//                                              once no models/<name>/*.yaml
+//                                              other than metadata.yaml remains
+//                                              except a v1 version file
+//                                              (apiVersion catalog.swiss/v1, no
+//                                              kind). If-Match is metadata.yaml's
+//                                              digest. 422 names any other,
+//                                              including one that does not parse
+//                                              and one that parses as neither a
+//                                              v1 version nor a variant. With
+//                                              none, it is left out of
+//                                              index-v2.json; GET metadata and
+//                                              this call still reach it.
 //   GET    api/v2/                             what this server takes: the web
 //                                              app turns editing on by it
 //   GET    api/v2/catalog                      catalog.yaml, its digest as ETag
@@ -377,6 +386,8 @@ function createServer({ store, tokens = null, base = "/", pages = null, template
 function describe({ commit, plan, snapshot }, { dryRun }) {
   const out = { commit, ...(dryRun && { dryRun: true }), ...(plan.unchanged && { unchanged: true }), path: plan.rel };
   const [, model, file] = plan.rel.split("/");
+  // A model with no variants is not in the index. Replacing its metadata still
+  // names it here; deleting its last variant is the file being gone.
   const m = snapshot.index.models.find((x) => x.name === (plan.model ?? model));
   const v = m?.variants.find((x) => x.path === plan.rel);
   if (v) Object.assign(out, { model: m.name, id: v.id, version: v.version, digest: v.digest, releaseDate: v.releaseDate, history: v.history });

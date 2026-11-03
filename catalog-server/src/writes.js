@@ -268,12 +268,41 @@ function putMetadata(snap, { model, body, ifMatch, message }) {
   return { rel, changes: new Map([[rel, body]]), message: message || `${model}: metadata` };
 }
 
-// DELETE models/<model>, only when it has no variants: every tracked file
-// under models/<model>/, in one commit (metadata.yaml and leftovers such as
-// perf reports). A variant still there is a 422 that names it. Each
-// variant's history stays, and raw/ keeps serving its revisions, as deleting
-// one does: a deploy pinned to one still finds it. If-Match is metadata.yaml's
-// digest, including `*`, as on the other writes.
+// catalog.swiss/v1, as hack/lib/catalog.js has it. A version file is that
+// apiVersion and no kind (kindOf's "version"), by content, never by file name.
+const V1 = "catalog.swiss/v1";
+const isV1Version = (doc) => !!doc && typeof doc === "object" && doc.apiVersion === V1 && doc.kind === undefined;
+
+// models/<model>/*.yaml other than metadata.yaml. One that parses as a v1
+// version file is removed with the model, as are non-yaml leftovers such as
+// perf reports. Every other such file still counts: a variant, YAML that does
+// not parse, and YAML that parses as neither a v1 version nor a variant.
+function remainingVariantRels(snap, model) {
+  const prefix = `models/${model}/`;
+  const left = [];
+  for (const rel of [...snap.tree.keys()].sort()) {
+    if (!rel.startsWith(prefix)) continue;
+    const file = rel.slice(prefix.length);
+    if (file.includes("/") || !file.endsWith(".yaml") || file === "metadata.yaml") continue;
+    let doc;
+    try {
+      doc = yaml.parse(snap.blob(snap.tree.get(rel)).toString("utf8"));
+    } catch {
+      left.push(rel);
+      continue;
+    }
+    if (!isV1Version(doc)) left.push(rel);
+  }
+  return left;
+}
+
+// DELETE models/<model>, only when nothing but v1 version files remains under
+// it: every tracked file under models/<model>/, in one commit (metadata.yaml,
+// those version files, and leftovers such as perf reports). Any other
+// models/<model>/*.yaml is a 422 that names it. Each variant's history stays,
+// and raw/ keeps serving its revisions, as deleting one does: a deploy pinned
+// to one still finds it. If-Match is metadata.yaml's digest, including `*`,
+// as on the other writes.
 function deleteModel(snap, { model, ifMatch, message }) {
   mustBeInitialized(snap);
   const dir = modelDir(snap, model);
@@ -281,7 +310,8 @@ function deleteModel(snap, { model, ifMatch, message }) {
   const current = fileDigest(snap, rel);
   if (ifMatch == null) throw new HttpError(428, `${rel}: send If-Match with the digest it was read at`, { current });
   precondition(current, { ifMatch }, rel);
-  if (dir.variants.length) throw invalid(dir.variants.map((v) => `${v.rel}: still a variant -- delete it first`));
+  const left = remainingVariantRels(snap, model);
+  if (left.length) throw invalid(left.map((p) => `${p}: still a variant -- delete it first`));
   // Every tracked path in the snapshot's tree. One left behind keeps the directory.
   const changes = new Map();
   for (const p of snap.tree.keys()) if (p.startsWith(`models/${model}/`)) changes.set(p, null);
