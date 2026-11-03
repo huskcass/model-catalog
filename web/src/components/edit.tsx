@@ -617,30 +617,48 @@ export function DeleteVariant({ m, v }: { m: Model; v: Variant }) {
   );
 }
 
-// A model deleted, once confirmed. Its variants' histories stay, and so does
-// every revision of them a deploy may be pinned to.
+// A model deleted, once confirmed, and only when it has no variants: delete
+// those first. metadata.yaml's digest is read when this opens, so a change
+// made while it is open is a conflict. Histories stay, and so does every
+// revision a deploy may be pinned to.
 export function DeleteModel({ m }: { m: Model }) {
   const { base } = useHost();
   const token = useToken(base);
   const reload = useReload();
   const navigate = useNavigate();
   const api = modelApi(m.name);
+  const blocked = m.variants.length > 0;
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>(null);
+  // metadata.yaml's digest, from when this opened. If-Match is that, so a
+  // change made while the dialog is open is a conflict. Null until the read lands.
+  const [etag, setEtag] = useState<string | null>(null);
   useEffect(() => {
     if (open) {
       setOutcome(null);
       setMessage("");
+      setEtag(null);
+      let live = true;
+      readFile(base, metadataApi(m.name)).then(
+        (got) => {
+          if (live) setEtag(got.etag);
+        },
+        (err: Error) => {
+          if (live) setOutcome({ kind: "failed", err: err instanceof WriteError ? err : new WriteError(0, err.message) });
+        },
+      );
+      return () => {
+        live = false;
+      };
     }
-  }, [open]);
+  }, [open, base, m.name]);
   const remove = async () => {
+    if (!etag || blocked) return;
     setBusy(true);
     setOutcome(null);
     try {
-      // At metadata.yaml's digest, read now: the page does not carry it.
-      const { etag } = await readFile(base, metadataApi(m.name));
       await write(base, { method: "DELETE", api, etag, message });
       // The model's page is gone. The models list loads the catalog again.
       forgetCatalog(base);
@@ -653,18 +671,29 @@ export function DeleteModel({ m }: { m: Model }) {
     }
   };
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button title={`Delete ${m.name}`}>{icons.remove}Delete model</Button>
-      </DialogTrigger>
+    <Dialog
+      open={blocked ? false : open}
+      onOpenChange={(next) => {
+        if (!blocked) setOpen(next);
+      }}
+    >
+      <span className="inline-flex flex-wrap items-center gap-2" title={blocked ? "Delete the variants first" : undefined}>
+        <DialogTrigger asChild>
+          <Button title={blocked ? "Delete the variants first" : `Delete ${m.name}`} disabled={blocked}>
+            {icons.remove}Delete model
+          </Button>
+        </DialogTrigger>
+        {blocked && <span className="text-[0.8rem] text-muted-foreground">Delete the variants first</span>}
+      </span>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
             Delete <span className="font-mono">{m.name}</span>?
           </DialogTitle>
           <DialogDescription>
-            The model leaves the catalog, and every recipe of it. Each recipe's history stays, and a deploy pinned to one of its versions still finds
-            it. To steer people off it instead, edit it and set <code>deprecated</code>.
+            The model leaves the catalog: its <code>metadata.yaml</code> and any other file left under <code>models/{m.name}/</code>. Each recipe's
+            history stays, and a deploy pinned to one of its versions still finds it. To steer people off it instead, edit it and set{" "}
+            <code>deprecated</code>.
           </DialogDescription>
         </DialogHeader>
         <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-5 py-4">
@@ -682,7 +711,7 @@ export function DeleteModel({ m }: { m: Model }) {
           <Button
             type="button"
             className="border-destructive text-destructive hover:border-destructive hover:text-destructive"
-            disabled={!token || busy}
+            disabled={!token || busy || !etag}
             onClick={remove}
           >
             {busy ? "Deleting…" : "Delete"}

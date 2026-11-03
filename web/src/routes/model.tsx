@@ -405,6 +405,7 @@ export function ModelRoute() {
             </div>
           )}
           <div className="grid gap-[0.85rem]">
+            {total === 0 && <p className="text-[0.9rem] text-muted-foreground">No recipes.</p>}
             {variants.filter(shows).map((v) => (
               <VariantDetail
                 key={v.id}

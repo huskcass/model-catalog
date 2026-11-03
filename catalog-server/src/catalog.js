@@ -7,6 +7,7 @@
 //
 // Only schema v2: a model whose metadata.yaml is not catalog.swiss/v2 is not
 // in the index, and v1 version files (<name>-<version>.yaml) are not served.
+// A v2 model with no variant files is still listed, variants empty.
 
 const crypto = require("crypto");
 const yaml = require("yaml");
@@ -214,7 +215,8 @@ function buildSnapshot(repo, commit) {
         return isVariant(doc) ? [{ rel, doc, body: bodies.get(rel) }] : [];
       });
     dirs.set(name, { meta, metaRel: bodies.has(metaRel) ? metaRel : null, variants });
-    if (!isV2(meta) || !variants.length) continue;
+    // No variant files is still a model: metadata.yaml alone, variants empty.
+    if (!isV2(meta)) continue;
 
     // Perf reports, linked by file name. model-catalog's validate:schema
     // checks they are documents a reader can open; this serves what is there.

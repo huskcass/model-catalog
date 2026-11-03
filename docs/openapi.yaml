@@ -396,7 +396,8 @@ paths:
         byte for byte. It must be `catalog.swiss/v2` `kind: Variant`, its `model` and `id` this
         path's, in a v2 model, and its `version` semver above the variant's last revision -- a deleted
         one's included -- while changing more than the version. The same bytes again (a retry) are
-        `200` and commit nothing.
+        `200` and commit nothing. Refused (`422`) when the model's `defaultVariant` would then name
+        no variant it has: with any variant, `defaultVariant` must name one of them.
 
         What is not checked: the variant's JSON schema, chart values, images (model-catalog's
         `validate`).
@@ -447,9 +448,10 @@ paths:
       operationId: deleteVariant
       summary: Delete a variant file
       description: |
-        Refused (`422`) while the model's `defaultVariant` or a `tuning` entry names it, or when it is
-        the model's last variant: delete the model instead (`DELETE api/v2/models/{model}`). Its history
-        stays, and `raw/` keeps serving its revisions.
+        Refused (`422`) while a `tuning` entry names it, or while another variant remains and this one is
+        the model's `defaultVariant` (name another first). The last variant may be that default: deleting
+        it leaves `metadata.yaml`, which may still name it. That name is allowed only while the model has
+        no variants. Its history stays, and `raw/` keeps serving its revisions.
       x-served-by: [catalog-server]
       security:
         - bearer: []
@@ -510,7 +512,7 @@ paths:
       tags: [Models]
       operationId: putMetadata
       summary: Replace a model's metadata.yaml
-      description: Its `apiVersion` must be `catalog.swiss/v2`, its `name` the model's directory, and its `defaultVariant`, when set, one of its variants.
+      description: Its `apiVersion` must be `catalog.swiss/v2` and its `name` the model's directory. Its `defaultVariant`, when set, must be one of its variants while it has any. With no variants, `defaultVariant` may name one that is gone.
       x-served-by: [catalog-server]
       security:
         - bearer: []
@@ -559,8 +561,11 @@ paths:
       operationId: deleteModel
       summary: Delete a model
       description: |
-        Deletes `models/{model}/metadata.yaml` and every variant file, in one commit. `If-Match` is
-        `metadata.yaml`'s digest. Each variant's history stays, and `raw/` keeps serving its revisions.
+        Deletes every tracked file under `models/{model}/`, in one commit, and only when the model has no
+        variants. Refused (`422`) while any remain; `problems` names each and says to delete them first.
+        `If-Match` is `metadata.yaml`'s digest: missing is `428`, a mismatch is `412`, and `*` matches as
+        on the other writes. No such model is `404`. Each variant's history stays, and `raw/` keeps
+        serving its revisions.
       x-served-by: [catalog-server]
       security:
         - bearer: []
@@ -1092,7 +1097,7 @@ components:
         quantization:
           type: string
         defaultVariant:
-          description: The first variant when absent.
+          description: The first variant when absent. With no variants, it may name one that is gone.
           type: string
         reports:
           description: Perf reports at `models/<name>/<report>`.
@@ -1109,8 +1114,9 @@ components:
           items:
             $ref: "#/components/schemas/Tuning"
         variants:
+          description: One per variant file, by id. Empty when the model has none.
           type: array
-          minItems: 1
+          minItems: 0
           items:
             $ref: "#/components/schemas/VariantSummary"
     Tuning:
@@ -1397,6 +1403,7 @@ components:
         deprecated:
           $ref: "#/components/schemas/Deprecated"
         defaultVariant:
+          description: While the model has variants, one of them. With none, it may name a variant that is gone.
           type: string
         tuning:
           type: array

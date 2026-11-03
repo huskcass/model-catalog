@@ -21,7 +21,10 @@
 //   GET    api/v2/models/<name>/metadata       metadata.yaml, its digest as ETag
 //   PUT    api/v2/models/<name>/metadata       (If-Match: <digest>)
 //   POST   api/v2/models                       a new model: {metadata, variants}
-//   DELETE api/v2/models/<name>                the model (If-Match: metadata.yaml's digest)
+//   DELETE api/v2/models/<name>                every file under models/<name>/,
+//                                              once it has no variants
+//                                              (If-Match: metadata.yaml's digest;
+//                                              422 names any that remain)
 //   GET    api/v2/                             what this server takes: the web
 //                                              app turns editing on by it
 //   GET    api/v2/catalog                      catalog.yaml, its digest as ETag

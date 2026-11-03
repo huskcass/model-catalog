@@ -97,7 +97,7 @@
           "type": "string"
         },
         "defaultVariant": {
-          "description": "The first variant when absent.",
+          "description": "The first variant when absent. With no variants, it may name one that is gone.",
           "type": "string"
         },
         "reports": {
@@ -179,9 +179,9 @@
           }
         },
         "variants": {
-          "description": "One per variant file, by id.",
+          "description": "One per variant file, by id. Empty when the model has none.",
           "type": "array",
-          "minItems": 1,
+          "minItems": 0,
           "items": {
             "$ref": "#/$defs/variant"
           }

@@ -152,6 +152,8 @@ function buildIndex({ root: base = root } = {}) {
         })),
       };
     });
+    // No version file: not in the v1 index. A v2 model, with or without
+    // variants, has none of these and is listed in index-v2.json instead.
     if (versions.length === 0) continue;
     versions.sort((a, b) => compareVersions(a.version, b.version));
     const source = meta.source ?? {};
@@ -319,7 +321,8 @@ function rawBase(settings) {
   return m ? `https://raw.githubusercontent.com/${m[1]}/` : undefined;
 }
 
-// index-v2.json: v2 models and their variant files only; and the histories.
+// index-v2.json: v2 models and their variant files; a model with none is
+// listed with an empty variants array. And the histories.
 function buildIndexV2({ root: base = root, warn = console.warn } = {}) {
   const dir = path.join(base, "models");
   const settings = readYaml(path.join(base, "catalog.yaml")) ?? {};
@@ -331,7 +334,6 @@ function buildIndexV2({ root: base = root, warn = console.warn } = {}) {
     const meta = fs.existsSync(metaPath) ? readYaml(metaPath) : null;
     if (schemaOf(meta) !== "v2") continue;
     const variants = v2Variants(base, name, histories);
-    if (!variants.length) continue;
     const reports = linkableReports(base, name, warn);
     // The legacy version is index.json's.
     const tuning = (Array.isArray(meta.tuning) ? meta.tuning : []).map(({ version, ...t }) => {

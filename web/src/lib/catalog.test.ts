@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { Index, Model, Tuning, Variant } from "../types";
 import { catalogOf, hardwareLabels, hardwareShort, measuredAs, orderedVariants, reportLinks, topologyLabel, tuningFor, variantBest } from "./catalog";
-import { computeSummary, sorter, variantFacetsOf, type Facet } from "./facets";
+import { computeSummary, facetsOf, sorter, variantFacetsOf, type Facet } from "./facets";
 import { compareVersions } from "./versions";
 
 const variant = (id: string, over: Partial<Variant> = {}): Variant => ({
@@ -165,6 +165,16 @@ describe("index-v2.json", () => {
     expect(topologyLabel(m.variants[2].topology)).toBe("LeaderWorkerSet");
     expect(topologyLabel("pd")).toBe("Prefill/decode-disaggregated");
     expect(catalogOf(index({ defaultVariant: "fast" })).models[0].variants.find((v) => v.default)?.id).toBe("fast");
+  });
+
+  test("a model with no variants is a model with none", () => {
+    const [m] = catalogOf(index({ variants: [] })).models;
+    expect(m.variants).toEqual([]);
+    expect(m.comparison).toBeNull();
+    expect(orderedVariants(m)).toEqual([]);
+    expect(reportLinks(m, "Perf report").map((r) => r.text)).toEqual(["Perf report"]);
+    expect(facetsOf(m)).toMatchObject({ engines: [], hardware: [], topology: [], hasCmp: false, uplift: null });
+    expect(computeSummary([facetsOf(m)])).toMatchObject({ models: 1, variants: 0, pairs: 0 });
   });
 
   test("tuning names the variant versions measured; the model shows the pair measured on the current one", () => {

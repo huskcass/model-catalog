@@ -156,8 +156,8 @@ function variantOf(index: Index, m: IndexModel, v: IndexVariant, tuning: Tuning[
     history: v.history,
     servedName: v.servedName || null,
     engine: v.engine,
-    // The first variant when metadata.yaml names none.
-    default: v.id === (m.defaultVariant ?? m.variants[0].id),
+    // The first variant when metadata.yaml names none. A model may have none.
+    default: v.id === (m.defaultVariant ?? m.variants[0]?.id),
     description: v.description || null,
     link: v.link && /^https?:\/\//i.test(v.link) ? v.link : null,
     chart: v.chart || null,

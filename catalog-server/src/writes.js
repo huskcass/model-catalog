@@ -181,6 +181,11 @@ function putVariant(snap, { model, id, body, ifMatch, ifNoneMatch, message }) {
   if (current && !dir.variants.some((v) => v.rel === rel)) throw invalid([`${rel}: not a v2 variant file, so not one to replace here`]);
   const doc = parseDoc(body, rel);
   const problems = variantProblems(snap, rel, model, id, doc);
+  // After this write the model has a variant, so a defaultVariant left over
+  // from when it had none must name one of them -- this id included.
+  const ids = dir.variants.map((v) => v.doc.id);
+  if (!ids.includes(id)) ids.push(id);
+  problems.push(...defaultVariantProblems(dir.metaRel, model, dir.meta, ids));
   if (problems.length) throw invalid(problems);
   return {
     rel,
@@ -192,6 +197,13 @@ function putVariant(snap, { model, id, body, ifMatch, ifNoneMatch, message }) {
 
 // DELETE models/<model>/variants/<id>. Its history stays, and raw/ keeps
 // serving its revisions: a deploy pinned to one still finds it.
+//
+// The last variant may go. The model stays, with metadata.yaml and no
+// variants, until DELETE models/<model>. defaultVariant is refused only
+// while another variant remains, so the last one can be the default:
+// metadata.yaml is left as it is, and may still name the variant just
+// deleted. That name is allowed only while the model has no variants
+// (defaultVariantProblems). A tuning entry that names it is always refused.
 function deleteVariant(snap, { model, id, ifMatch, message }) {
   mustBeInitialized(snap);
   const dir = modelDir(snap, model);
@@ -201,7 +213,9 @@ function deleteVariant(snap, { model, id, ifMatch, message }) {
   if (ifMatch == null) throw new HttpError(428, `${rel}: send If-Match with the digest it was read at`, { current });
   precondition(current, { ifMatch }, rel);
   const problems = [];
-  if (dir.meta.defaultVariant === id) problems.push(`models/${model}/metadata.yaml: defaultVariant is ${id} -- name another first`);
+  if (dir.meta.defaultVariant === id && dir.variants.length > 1) {
+    problems.push(`models/${model}/metadata.yaml: defaultVariant is ${id} -- name another first`);
+  }
   (Array.isArray(dir.meta.tuning) ? dir.meta.tuning : []).forEach((t, i) => {
     for (const key of ["baseline", "optimized"]) {
       if (String(t?.[key] ?? "").split("@")[0] === id) problems.push(`models/${model}/metadata.yaml: tuning[${i}].${key} names ${id}`);
@@ -212,19 +226,25 @@ function deleteVariant(snap, { model, id, ifMatch, message }) {
       if (String(o?.[key] ?? "").split("@")[0] === id) problems.push(`models/${model}/metadata.yaml: origins[${i}].${key} names ${id}`);
     }
   });
-  if (dir.variants.length === 1)
-    problems.push(`${rel}: the model's last variant -- a model has at least one: delete the model instead (DELETE api/v2/models/${model})`);
   if (problems.length) throw invalid(problems);
   return { rel, changes: new Map([[rel, null]]), message: message || `${model}/${id}: delete` };
+}
+
+// defaultVariant, when set, must name one of ids. With no variants (ids
+// empty) it may name one that is gone: deleting the last variant leaves
+// metadata.yaml unchanged, and that name is allowed only then.
+function defaultVariantProblems(rel, name, meta, ids) {
+  if (meta.defaultVariant !== undefined && ids.length > 0 && !ids.includes(meta.defaultVariant)) {
+    return [`${rel}: defaultVariant: ${JSON.stringify(meta.defaultVariant)} is not a variant of ${name}`];
+  }
+  return [];
 }
 
 function metadataProblems(rel, name, meta, ids) {
   const problems = [];
   if (meta.apiVersion !== V2) problems.push(`${rel}: apiVersion: want ${V2}`);
   if (meta.name !== name) problems.push(`${rel}: name: ${JSON.stringify(meta.name)} is not ${name}, its directory`);
-  if (meta.defaultVariant !== undefined && !ids.includes(meta.defaultVariant)) {
-    problems.push(`${rel}: defaultVariant: ${JSON.stringify(meta.defaultVariant)} is not a variant of ${name}`);
-  }
+  problems.push(...defaultVariantProblems(rel, name, meta, ids));
   return problems;
 }
 
@@ -248,9 +268,12 @@ function putMetadata(snap, { model, body, ifMatch, message }) {
   return { rel, changes: new Map([[rel, body]]), message: message || `${model}: metadata` };
 }
 
-// DELETE models/<model>: its metadata.yaml and every variant file, in one
-// commit. Each variant's history stays, and raw/ keeps serving its revisions,
-// as deleting one does: a deploy pinned to one still finds it.
+// DELETE models/<model>, only when it has no variants: every tracked file
+// under models/<model>/, in one commit (metadata.yaml and leftovers such as
+// perf reports). A variant still there is a 422 that names it. Each
+// variant's history stays, and raw/ keeps serving its revisions, as deleting
+// one does: a deploy pinned to one still finds it. If-Match is metadata.yaml's
+// digest, including `*`, as on the other writes.
 function deleteModel(snap, { model, ifMatch, message }) {
   mustBeInitialized(snap);
   const dir = modelDir(snap, model);
@@ -258,13 +281,15 @@ function deleteModel(snap, { model, ifMatch, message }) {
   const current = fileDigest(snap, rel);
   if (ifMatch == null) throw new HttpError(428, `${rel}: send If-Match with the digest it was read at`, { current });
   precondition(current, { ifMatch }, rel);
-  const changes = new Map([[rel, null]]);
-  for (const v of dir.variants) changes.set(v.rel, null);
+  if (dir.variants.length) throw invalid(dir.variants.map((v) => `${v.rel}: still a variant -- delete it first`));
+  // Every tracked path in the snapshot's tree. One left behind keeps the directory.
+  const changes = new Map();
+  for (const p of snap.tree.keys()) if (p.startsWith(`models/${model}/`)) changes.set(p, null);
   return { rel, model, changes, message: message || `${model}: delete` };
 }
 
 // POST models: a new model, its metadata.yaml and its first variants, in one
-// commit -- a model has a variant from its first commit on.
+// commit. A model starts with a variant; later deletes may leave it with none.
 function createModel(snap, { metadata, variants, message }) {
   mustBeInitialized(snap);
   if (typeof metadata !== "string" || !Array.isArray(variants) || !variants.length || variants.some((v) => typeof v !== "string")) {
