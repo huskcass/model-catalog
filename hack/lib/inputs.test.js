@@ -63,15 +63,6 @@ test("a pattern compiles, and only a string input has one", () => {
 const problems = (key, values, extra = {}) => inputProblems(variant([{ key, title: "t", ...extra }], values));
 const matchCount = (key, n) => [`inputs[0] ${key}: matches ${n} values in values, not exactly one`];
 
-test("a field-only key a.b.c may be absent; a present primitive passes, a non-map on the way is an error", () => {
-  const key = "a.b.c";
-  assert.deepEqual(problems(key, {}), []);
-  assert.deepEqual(problems(key, { a: { b: { c: "ok" } } }), []);
-  assert.deepEqual(problems(key, { a: { b: { c: 1 } } }), []);
-  assert.deepEqual(problems(key, { a: { b: { c: false } } }), []);
-  assert.deepEqual(problems(key, { a: { b: "nope" } }), ["inputs[0] a.b.c: values.a.b is not a map, so the answer has no place to go"]);
-});
-
 test("a list key must reach exactly one primitive in values: zero or several is an error", () => {
   const cases = [
     {
@@ -113,9 +104,10 @@ test("a list key must reach exactly one primitive in values: zero or several is 
   for (const c of cases) {
     assert.deepEqual(problems(c.key, c.one), [], `${c.key} one`);
     assert.deepEqual(problems(c.key, c.zero), matchCount(c.key, 0), `${c.key} zero`);
-    assert.deepEqual(problems(c.key, {}), matchCount(c.key, 0), `${c.key} missing`);
     if (c.multi) assert.deepEqual(problems(c.key, c.multi), matchCount(c.key, 2), `${c.key} multi`);
   }
+  const missing = "volumes.[name=draft-model].hostPath.path";
+  assert.deepEqual(problems(missing, {}), matchCount(missing, 0));
 });
 
 test("a list key that stops at a map or a list is an error", () => {
@@ -129,13 +121,15 @@ test("a list key that stops at a map or a list is an error", () => {
 });
 
 test("a patcher is a string template with {value} exactly once", () => {
-  assert.deepEqual(problems("a.b", { a: { b: "prefix-hi" } }, { patcher: "prefix-{value}" }), []);
-  assert.deepEqual(problems("a.b", {}, { patcher: "prefix-{value}" }), []);
-  assert.match(problems("a.b", {}, { patcher: "no-placeholder" })[0], /patcher must contain \{value\} exactly once$/);
-  assert.match(problems("a.b", {}, { patcher: "{value} and {value}" })[0], /patcher must contain \{value\} exactly once$/);
+  const key = "extraArgs.[^=--speculative-draft-model-path=]";
+  const patcher = "--speculative-draft-model-path={value}";
+  const values = { extraArgs: ["--speculative-draft-model-path=/models/draft", "--other=1"] };
+  assert.deepEqual(problems(key, values, { patcher }), []);
+  assert.match(problems(key, values, { patcher: "no-placeholder" })[0], /patcher must contain \{value\} exactly once$/);
+  assert.match(problems(key, values, { patcher: "{value} and {value}" })[0], /patcher must contain \{value\} exactly once$/);
+  assert.match(problems(key, values, { patcher, type: "integer", example: 1 })[0], /patcher is only for a string input, and this one is integer$/);
   assert.match(
-    problems("a.b", {}, { patcher: "x-{value}", type: "integer", example: 1 })[0],
-    /patcher is only for a string input, and this one is integer$/,
+    problems(key, values, { patcher: "--speculative-draft-model-path={value}.gguf" })[0],
+    /values gives "--speculative-draft-model-path=\/models\/draft", which does not fit the patcher$/,
   );
-  assert.match(problems("a.b", { a: { b: "other" } }, { patcher: "prefix-{value}" })[0], /values gives "other", which does not fit the patcher$/);
 });

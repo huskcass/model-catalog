@@ -106,7 +106,7 @@ function findAt(values, segs) {
         node.forEach((item, i) => {
           const v = field ? (isMap(item) ? item[field] : undefined) : item;
           const ok = prefix ? typeof v === "string" && v.startsWith(want) : isPrimitive(v) && String(v) === want;
-          if (ok && (field || isPrimitive(item))) next.push({ parent: node, at: i, value: item });
+          if (ok) next.push({ parent: node, at: i, value: item });
         });
       } else if (!bracket && /^(0|[1-9][0-9]*)$/.test(seg) && Array.isArray(node)) {
         if (Number(seg) < node.length) next.push({ parent: node, at: Number(seg), value: node[Number(seg)] });
@@ -116,7 +116,7 @@ function findAt(values, segs) {
     }
     here = next;
   }
-  return segs.length ? here : [];
+  return here;
 }
 
 module.exports = { inputProblems, valueSetAt, splitKey, findAt };
