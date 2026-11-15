@@ -57,3 +57,85 @@ test("a pattern compiles, and only a string input has one", () => {
     /pattern is only for a string input, and this one is integer$/,
   );
 });
+
+// A key that is only fields may be missing from values; any other key must
+// resolve to exactly one primitive there.
+const problems = (key, values, extra = {}) => inputProblems(variant([{ key, title: "t", ...extra }], values));
+const matchCount = (key, n) => [`inputs[0] ${key}: matches ${n} values in values, not exactly one`];
+
+test("a field-only key a.b.c may be absent; a present primitive passes, a non-map on the way is an error", () => {
+  const key = "a.b.c";
+  assert.deepEqual(problems(key, {}), []);
+  assert.deepEqual(problems(key, { a: { b: { c: "ok" } } }), []);
+  assert.deepEqual(problems(key, { a: { b: { c: 1 } } }), []);
+  assert.deepEqual(problems(key, { a: { b: { c: false } } }), []);
+  assert.deepEqual(problems(key, { a: { b: "nope" } }), ["inputs[0] a.b.c: values.a.b is not a map, so the answer has no place to go"]);
+});
+
+test("a list key must reach exactly one primitive in values: zero or several is an error", () => {
+  const cases = [
+    {
+      key: "volumes.[name=draft-model].hostPath.path",
+      one: {
+        volumes: [
+          { name: "draft-model", hostPath: { path: "/data/draft" } },
+          { name: "cache", hostPath: { path: "/data/cache" } },
+        ],
+      },
+      zero: { volumes: [{ name: "cache", hostPath: { path: "/data/cache" } }] },
+      multi: {
+        volumes: [
+          { name: "draft-model", hostPath: { path: "/data/draft" } },
+          { name: "draft-model", hostPath: { path: "/data/other" } },
+        ],
+      },
+    },
+    {
+      key: "extraArgs.[=--foo=1]",
+      one: { extraArgs: ["--foo=1", "--bar=2"] },
+      zero: { extraArgs: ["--bar=2"] },
+      multi: { extraArgs: ["--foo=1", "--bar=2", "--foo=1"] },
+    },
+    {
+      key: "extraArgs.[^=--speculative-draft-model-path=]",
+      one: { extraArgs: ["--speculative-draft-model-path=/models/draft", "--other=1"] },
+      zero: { extraArgs: ["--other=1"] },
+      multi: {
+        extraArgs: ["--speculative-draft-model-path=/models/a", "--speculative-draft-model-path=/models/b"],
+      },
+    },
+    {
+      key: "volumes.0.hostPath.path",
+      one: { volumes: [{ hostPath: { path: "/data/draft" } }, { hostPath: { path: "/data/cache" } }] },
+      zero: { volumes: [] },
+    },
+  ];
+  for (const c of cases) {
+    assert.deepEqual(problems(c.key, c.one), [], `${c.key} one`);
+    assert.deepEqual(problems(c.key, c.zero), matchCount(c.key, 0), `${c.key} zero`);
+    assert.deepEqual(problems(c.key, {}), matchCount(c.key, 0), `${c.key} missing`);
+    if (c.multi) assert.deepEqual(problems(c.key, c.multi), matchCount(c.key, 2), `${c.key} multi`);
+  }
+});
+
+test("a list key that stops at a map or a list is an error", () => {
+  assert.deepEqual(problems("volumes.[name=draft-model]", { volumes: [{ name: "draft-model", hostPath: { path: "/x" } }] }), [
+    "inputs[0] volumes.[name=draft-model]: selects a non-primitive in values",
+  ]);
+  assert.deepEqual(problems("volumes.[name=draft-model].hostPath", { volumes: [{ name: "draft-model", hostPath: { path: "/x" } }] }), [
+    "inputs[0] volumes.[name=draft-model].hostPath: selects a non-primitive in values",
+  ]);
+  assert.deepEqual(problems("groups.0", { groups: [[1, 2], [3]] }), ["inputs[0] groups.0: selects a non-primitive in values"]);
+});
+
+test("a patcher is a string template with {value} exactly once", () => {
+  assert.deepEqual(problems("a.b", { a: { b: "prefix-hi" } }, { patcher: "prefix-{value}" }), []);
+  assert.deepEqual(problems("a.b", {}, { patcher: "prefix-{value}" }), []);
+  assert.match(problems("a.b", {}, { patcher: "no-placeholder" })[0], /patcher must contain \{value\} exactly once$/);
+  assert.match(problems("a.b", {}, { patcher: "{value} and {value}" })[0], /patcher must contain \{value\} exactly once$/);
+  assert.match(
+    problems("a.b", {}, { patcher: "x-{value}", type: "integer", example: 1 })[0],
+    /patcher is only for a string input, and this one is integer$/,
+  );
+  assert.match(problems("a.b", { a: { b: "other" } }, { patcher: "prefix-{value}" })[0], /values gives "other", which does not fit the patcher$/);
+});
